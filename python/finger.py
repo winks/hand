@@ -6,8 +6,7 @@ import sys
 def cmain(name, file_name = '/etc/passwd'):
     user = check_user(name, file_name)
     if user == {}:
-        print "finger: %s: no such user." % name
-        sys.exit(1)
+        return "finger: %s: no such user." % name
     return display(user)
 
 def check_user(name, file_name = '/etc/passwd'):
