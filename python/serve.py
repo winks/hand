@@ -26,6 +26,11 @@ while 1:
     if s is None:
         print 'could not open socket'
         sys.exit(1)
+    if HOST is None:
+        PHOST = '*'
+    else:
+        PHOST = HOST
+    print "Listening on %s:%d..." % (PHOST, PORT)
     conn, addr = s.accept()
     print "Connected by ", addr
     while 1:
