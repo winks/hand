@@ -11,16 +11,14 @@
 #include <sys/wait.h>
 #include <signal.h>
 
-#define PORT "3490"  // the port users will be connecting to
+#define PORT "3490"
 #define FDIR "/srv/finger"
 #define ENABLE_FEATURE_LIST 0
 
-
-
-
 #define MAXDATASIZE 100
 #define MAXFILESIZE 1024
-#define BACKLOG 10     // how many pending connections queue will hold
+// how many pending connections queue will hold
+#define BACKLOG 10
 #define MSG_LIST_NO "Finger online user list denied"
 #define MSG_LIST_YES "Finger online user NYI"
 #define MSG_NO_INFO  "No information found"
@@ -40,19 +38,18 @@ void *get_in_addr(struct sockaddr *sa)
     return &(((struct sockaddr_in6*)sa)->sin6_addr);
 }
 
-int reader(char* name, char* output)
+int reader(char* username, char* filename, char* output)
 {
     FILE *fp;
-    int c;
-    char fname[MAXDATASIZE];
+    char filepath[MAXDATASIZE];
 
-    if (snprintf(fname, MAXDATASIZE, "%s/%s/.plan", FDIR, name) >= MAXDATASIZE) {
+    if (snprintf(filepath, MAXDATASIZE, "%s/%s/%s", FDIR, username, filename) >= MAXDATASIZE) {
         perror("too long");
         return 1;
     }
-    fprintf(stderr, "  fn  : %s %d\n", fname, strlen(fname));
+    fprintf(stderr, "  fn  : %s %zu\n", filepath, strlen(filepath));
 
-    fp = fopen(fname, "r");
+    fp = fopen(filepath, "r");
     if (fp != NULL && fp != 0) {
         size_t len = fread(output, sizeof(char), MAXFILESIZE, fp);
         if (len == 0) {
@@ -77,6 +74,8 @@ int sender(int new_fd, char* str)
         perror("send");
     }
     printf("\n");
+
+    return 0;
 }
 
 int main(void)
@@ -94,7 +93,7 @@ int main(void)
     int rv;
     int numbytes;
     char buf[MAXDATASIZE], q0[MAXDATASIZE];
-    int buflen;
+    size_t buflen;
 
     memset(&hints, 0, sizeof hints);
     hints.ai_family = AF_UNSPEC;
@@ -194,7 +193,7 @@ int main(void)
             }
             buf[numbytes] = '\0';
             buflen = strlen(buf);
-            fprintf(stderr, "  recv: %d/%d\n", buflen, sizeof buf);
+            fprintf(stderr, "  recv: %zu/%lu\n", buflen, sizeof buf);
 
             // This is bogus
             if (buflen < 2 ) {
@@ -211,13 +210,13 @@ int main(void)
                 for (i=0; i<buflen; i++) {
                     if (i>1 && buf[i-1] == 13 && buf[i] == 10) {
                         int aa = snprintf(q0, i, buf);
-                        fprintf(stderr, "  q0 %d: %s %d (%d)\n", i, q0, strlen(q0), aa);
+                        fprintf(stderr, "  q0 %d: %s %zu (%d)\n", i, q0, strlen(q0), aa);
                         char out[MAXFILESIZE+2];
-                        if(reader(q0, out) != 0) {
+                        if(reader(q0, ".plan", out) != 0) {
                             sender(new_fd, MSG_NO_INFO);
                             continue;
                         }
-                        fprintf(stderr, "  out : %d %s\n", strlen(out), out);
+                        fprintf(stderr, "  out : %zu %s\n", strlen(out), out);
                         sender(new_fd, out);
                     }
                 }
