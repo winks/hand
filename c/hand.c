@@ -21,7 +21,16 @@
 #define BACKLOG 10
 #define MSG_LIST_NO "Finger online user list denied"
 #define MSG_LIST_YES "Finger online user NYI"
-#define MSG_NO_INFO  "No information found"
+#define MSG_NO_INFO "No information found"
+
+struct User {
+    char* name;
+    char* realname;
+    char* home;
+    char* shell;
+    int uid;
+    int gid;
+};
 
 void sigchld_handler(int s)
 {
@@ -50,30 +59,122 @@ int reader(char* username, char* filename, char* output)
     fprintf(stderr, "  fn  : %s %zu\n", filepath, strlen(filepath));
 
     fp = fopen(filepath, "r");
-    if (fp != NULL && fp != 0) {
+    if (fp == NULL || fp == 0) {
+        perror("file does not exist");
+        return 2;
+    } else {
         size_t len = fread(output, sizeof(char), MAXFILESIZE, fp);
         if (len == 0) {
             perror("error reading");
-            return 2;
+            return 3;
         } else {
             output[++len] = '\0';
         }
-    } else {
-        perror("error reading");
-        return 3;
     }
     fclose(fp);
+
     return 0;
 }
 
-int sender(int new_fd, char* str)
+int sender(int new_fd, char* str, int newline)
 {
     char out[MAXFILESIZE+2];
-    snprintf(out, strlen(str)+2, "%s\n", str);
+
+    if (newline) {
+        snprintf(out, sizeof out, "%s\n", str);
+    } else {
+        snprintf(out, sizeof out, "%s", str);
+    }
     if (send(new_fd, out, strlen(out), 0) == -1) {
         perror("send");
     }
     printf("\n");
+
+    return 0;
+}
+
+int parse_line (char *line, struct User *u)
+{
+    int fields = 0;
+    int i, last, div = 0;
+    int uid, gid;
+    char tuid[32];
+    char tgid[32];
+    char name[100];
+    char realname[100];
+    char home[100];
+    char shell[100];
+
+    //printf("::: %s\n", line);
+    //printf("::: %d %d\n", strlen(line), sizeof line);
+
+    for (i=0; i<strlen(line); i++) {
+        if (line[i] == ':' || line[i] == '\n' || line[i] == '\r') {
+            switch(fields) {
+                case 0:
+                    //printf(":i: %d [%d]\n", i, fields);
+                    snprintf(name, sizeof name, "%.*s", i,  line);
+                    name[i] = '\0';
+                    div += i;
+                    last = i;
+                    fields++;
+                    break;
+                case 2:
+                    //printf(":i: %d [%d]\n", i, fields);
+                    snprintf(tuid, sizeof tuid, "%.*s", i-last-1, line+last+1);
+                    tuid[i-last] = '\0';
+                    uid = atoi(tuid);
+                    div += i;
+                    last = i;
+                    fields++;
+                    break;
+                case 3:
+                    //printf(":i: %d [%d]\n", i, fields);
+                    snprintf(tgid, sizeof tgid, "%.*s", i-last-1, line+last+1);
+                    tgid[i-last] = '\0';
+                    gid = atoi(tgid);
+                    div += i;
+                    last = i;
+                    fields++;
+                    break;
+                case 4:
+                    //printf(":i: %d [%d]\n", i, fields);
+                    snprintf(realname, sizeof realname, "%.*s", i-last-1, line+last+1);
+                    realname[i-last] = '\0';
+                    div += i;
+                    last = i;
+                    fields++;
+                    break;
+                case 5:
+                    //printf(":i: %d [%d]\n", i, fields);
+                    snprintf(home, sizeof home, "%.*s", i-last-1,  line+last+1);
+                    home[i-last] = '\0';
+                    div += i;
+                    last = i;
+                    fields++;
+                    break;
+                case 6:
+                    //printf(":i: %d [%d]\n", i, fields);
+                    snprintf(shell, sizeof shell, "%.*s", i-last-1,  line+last+1);
+                    shell[i-last] = '\0';
+                    div += i;
+                    last = i;
+                    fields++;
+                    break;
+                default:
+                    div += i;
+                    last = i;
+                    fields++;
+                    //printf("__\n");
+            }
+        }
+    }
+    printf(":n: %s\n", name);
+    printf(":u: %d\n", uid);
+    printf(":g: %d\n", gid);
+    printf(":r: %s\n", realname);
+    printf(":h: %s\n", home);
+    printf(":s: %s\n", shell);
 
     return 0;
 }
@@ -201,9 +302,9 @@ int main(void)
             // This is {Q1} = "<CRLF>"
             } else if (buflen == 2 && buf[0] == 13 && buf[1] == 10) {
                 if (ENABLE_FEATURE_LIST) {
-                    sender(new_fd, MSG_LIST_YES);
+                    sender(new_fd, MSG_LIST_YES, 1);
                 } else {
-                    sender(new_fd, MSG_LIST_NO);
+                    sender(new_fd, MSG_LIST_NO, 1);
                 }
             } else {
                 int i;
@@ -211,13 +312,25 @@ int main(void)
                     if (i>1 && buf[i-1] == 13 && buf[i] == 10) {
                         int aa = snprintf(q0, i, buf);
                         fprintf(stderr, "  q0 %d: %s %zu (%d)\n", i, q0, strlen(q0), aa);
-                        char out[MAXFILESIZE+2];
-                        if(reader(q0, ".plan", out) != 0) {
-                            sender(new_fd, MSG_NO_INFO);
-                            continue;
+
+                        char out_plan[MAXFILESIZE+2];
+                        char out_all[(MAXFILESIZE+2)*2];
+                        struct User *usr = malloc(sizeof(struct User));
+                        char *fake = "puppet:x:106:111:Puppet configuration management daemon,,,:/var/lib/puppet:/bin/false\n";
+                        parse_line(fake, usr);
+
+                        if(reader(q0, ".nofinger", out_plan) != 2) {
+                            sender(new_fd, MSG_NO_INFO, 1);
+                            break;
                         }
-                        fprintf(stderr, "  out : %zu %s\n", strlen(out), out);
-                        sender(new_fd, out);
+                        if(reader(q0, ".plan", out_plan) != 0) {
+                            sender(new_fd, MSG_NO_INFO, 1);
+                            break;
+                        }
+
+                        fprintf(stderr, "  plan: %zu %s\n", strlen(out_plan), out_plan);
+                        sender(new_fd, out_plan, 0);
+                        break;
                     }
                 }
             }
