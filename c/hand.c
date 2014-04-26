@@ -10,6 +10,8 @@
 #include <arpa/inet.h>
 #include <sys/wait.h>
 #include <signal.h>
+#include <sys/types.h>
+#include <pwd.h>
 
 #define PORT "3490"
 #define FDIR "/srv/finger"
@@ -17,27 +19,16 @@
 
 #define MAXDATASIZE 100
 #define MAXFILESIZE 1024
-// how many pending connections queue will hold
 #define BACKLOG 10
 #define MSG_LIST_NO "Finger online user list denied"
 #define MSG_LIST_YES "Finger online user NYI"
 #define MSG_NO_INFO "No information found"
-
-struct User {
-    char* name;
-    char* realname;
-    char* home;
-    char* shell;
-    int uid;
-    int gid;
-};
 
 void sigchld_handler(int s)
 {
     while(waitpid(-1, NULL, WNOHANG) > 0);
 }
 
-// get sockaddr, IPv4 or IPv6:
 void *get_in_addr(struct sockaddr *sa)
 {
     if (sa->sa_family == AF_INET) {
@@ -56,7 +47,7 @@ int reader(char* username, char* filename, char* output)
         perror("too long");
         return 1;
     }
-    fprintf(stderr, "  fn  : %s %zu\n", filepath, strlen(filepath));
+    fprintf(stderr, "  fn  : %s %zu %zu %zu\n", filepath, strlen(filepath), sizeof username, sizeof &output);
 
     fp = fopen(filepath, "r");
     if (fp == NULL || fp == 0) {
@@ -93,88 +84,15 @@ int sender(int new_fd, char* str, int newline)
     return 0;
 }
 
-int parse_line (char *line, struct User *u)
+int xfmt(struct passwd *p, char *txt, int len)
 {
-    int fields = 0;
-    int i, last, div = 0;
-    int uid, gid;
-    char tuid[32];
-    char tgid[32];
-    char name[100];
-    char realname[100];
-    char home[100];
-    char shell[100];
+    char *tpl1 = "Login: %-33sName: %s";
+    char *tpl2 = "Directory: %-29sShell: %s";
+    char lines[2][160];
 
-    //printf("::: %s\n", line);
-    //printf("::: %d %d\n", strlen(line), sizeof line);
-
-    for (i=0; i<strlen(line); i++) {
-        if (line[i] == ':' || line[i] == '\n' || line[i] == '\r') {
-            switch(fields) {
-                case 0:
-                    //printf(":i: %d [%d]\n", i, fields);
-                    snprintf(name, sizeof name, "%.*s", i,  line);
-                    name[i] = '\0';
-                    div += i;
-                    last = i;
-                    fields++;
-                    break;
-                case 2:
-                    //printf(":i: %d [%d]\n", i, fields);
-                    snprintf(tuid, sizeof tuid, "%.*s", i-last-1, line+last+1);
-                    tuid[i-last] = '\0';
-                    uid = atoi(tuid);
-                    div += i;
-                    last = i;
-                    fields++;
-                    break;
-                case 3:
-                    //printf(":i: %d [%d]\n", i, fields);
-                    snprintf(tgid, sizeof tgid, "%.*s", i-last-1, line+last+1);
-                    tgid[i-last] = '\0';
-                    gid = atoi(tgid);
-                    div += i;
-                    last = i;
-                    fields++;
-                    break;
-                case 4:
-                    //printf(":i: %d [%d]\n", i, fields);
-                    snprintf(realname, sizeof realname, "%.*s", i-last-1, line+last+1);
-                    realname[i-last] = '\0';
-                    div += i;
-                    last = i;
-                    fields++;
-                    break;
-                case 5:
-                    //printf(":i: %d [%d]\n", i, fields);
-                    snprintf(home, sizeof home, "%.*s", i-last-1,  line+last+1);
-                    home[i-last] = '\0';
-                    div += i;
-                    last = i;
-                    fields++;
-                    break;
-                case 6:
-                    //printf(":i: %d [%d]\n", i, fields);
-                    snprintf(shell, sizeof shell, "%.*s", i-last-1,  line+last+1);
-                    shell[i-last] = '\0';
-                    div += i;
-                    last = i;
-                    fields++;
-                    break;
-                default:
-                    div += i;
-                    last = i;
-                    fields++;
-                    //printf("__\n");
-            }
-        }
-    }
-    printf(":n: %s\n", name);
-    printf(":u: %d\n", uid);
-    printf(":g: %d\n", gid);
-    printf(":r: %s\n", realname);
-    printf(":h: %s\n", home);
-    printf(":s: %s\n", shell);
+    snprintf(lines[0], sizeof lines[0], tpl1, p->pw_name, p->pw_gecos);
+    snprintf(lines[1], sizeof lines[1], tpl2, p->pw_dir, p->pw_shell);
+    snprintf(txt, len, "%s\n%s\n", lines[0], lines[1]);
 
     return 0;
 }
@@ -270,7 +188,7 @@ int main(void)
 
     printf("SRV : waiting for connections...\n\n");
 
-    while(1) {  // main accept() loop
+    while(1) {
         sin_size = sizeof their_addr;
         new_fd = accept(sockfd, (struct sockaddr *)&their_addr, &sin_size);
         if (new_fd == -1) {
@@ -296,9 +214,8 @@ int main(void)
             buflen = strlen(buf);
             fprintf(stderr, "  recv: %zu/%lu\n", buflen, sizeof buf);
 
-            // This is bogus
+            // This is a bogus case, ignore
             if (buflen < 2 ) {
-
             // This is {Q1} = "<CRLF>"
             } else if (buflen == 2 && buf[0] == 13 && buf[1] == 10) {
                 if (ENABLE_FEATURE_LIST) {
@@ -311,25 +228,34 @@ int main(void)
                 for (i=0; i<buflen; i++) {
                     if (i>1 && buf[i-1] == 13 && buf[i] == 10) {
                         int aa = snprintf(q0, i, buf);
-                        fprintf(stderr, "  q0 %d: %s %zu (%d)\n", i, q0, strlen(q0), aa);
+                        fprintf(stderr, "  q0  : %s %zu (%d)\n", q0, strlen(q0), aa);
 
+                        char out_hdr[MAXFILESIZE+2];
                         char out_plan[MAXFILESIZE+2];
                         char out_all[(MAXFILESIZE+2)*2];
-                        struct User *usr = malloc(sizeof(struct User));
-                        char *fake = "puppet:x:106:111:Puppet configuration management daemon,,,:/var/lib/puppet:/bin/false\n";
-                        parse_line(fake, usr);
 
+                        struct passwd *p = malloc(sizeof(struct passwd));
+                        if ((p = getpwnam(q0)) == NULL) {
+                            printf("user not found\n");
+                            sender(new_fd, MSG_NO_INFO, 1);
+                            break;
+                        }
                         if(reader(q0, ".nofinger", out_plan) != 2) {
                             sender(new_fd, MSG_NO_INFO, 1);
                             break;
                         }
+
+                        xfmt(p, out_hdr, sizeof out_hdr);
+                        fprintf(stderr, "   hdr: %s\n", out_hdr);
+
                         if(reader(q0, ".plan", out_plan) != 0) {
-                            sender(new_fd, MSG_NO_INFO, 1);
-                            break;
+                            snprintf(out_plan, sizeof out_plan, "No Plan.\n");
                         }
 
-                        fprintf(stderr, "  plan: %zu %s\n", strlen(out_plan), out_plan);
-                        sender(new_fd, out_plan, 0);
+                        fprintf(stderr, "  plan: %s\n", out_plan);
+
+                        snprintf(out_all, sizeof out_all, "%s%s", out_hdr, out_plan);
+                        sender(new_fd, out_all, 0);
                         break;
                     }
                 }
