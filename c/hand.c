@@ -97,6 +97,63 @@ int xfmt(struct passwd *p, char *txt, int len)
     return 0;
 }
 
+int handle_input(char *buf, int new_fd)
+{
+    char q0[MAXDATASIZE];
+    size_t buflen = strlen(buf);
+    fprintf(stderr, "  recv: %zu/%d\n", buflen, MAXDATASIZE);
+
+    // This is a bogus case, ignore
+    if (buflen < 2 ) {
+    // This is {Q1} = "<CRLF>"
+    } else if (buflen == 2 && buf[0] == 13 && buf[1] == 10) {
+        if (ENABLE_FEATURE_LIST) {
+            sender(new_fd, MSG_LIST_YES, 1);
+        } else {
+            sender(new_fd, MSG_LIST_NO, 1);
+        }
+    } else {
+        int i;
+        for (i=0; i<buflen; i++) {
+            if (i>1 && buf[i-1] == 13 && buf[i] == 10) {
+                int aa = snprintf(q0, i, buf);
+                fprintf(stderr, "  q0  : %s %zu (%d)\n", q0, strlen(q0), aa);
+
+                char out_hdr[MAXFILESIZE+2];
+                char out_plan[MAXFILESIZE+2];
+                char out_all[(MAXFILESIZE+2)*2];
+
+                struct passwd *p = malloc(sizeof(struct passwd));
+                if ((p = getpwnam(q0)) == NULL) {
+                    printf("user not found\n");
+                    sender(new_fd, MSG_NO_INFO, 1);
+                    break;
+                }
+                if(reader(q0, ".nofinger", out_plan) != 2) {
+                    sender(new_fd, MSG_NO_INFO, 1);
+                    break;
+                }
+
+                xfmt(p, out_hdr, sizeof out_hdr);
+                fprintf(stderr, "   hdr: %s\n", out_hdr);
+
+                if(reader(q0, ".plan", out_plan) != 0) {
+                    snprintf(out_plan, sizeof out_plan, "No Plan.\n");
+                }
+
+                fprintf(stderr, "  plan: %s\n", out_plan);
+
+                snprintf(out_all, sizeof out_all, "%s%s", out_hdr, out_plan);
+                sender(new_fd, out_all, 0);
+                break;
+            }
+        }
+    }
+
+    return 0;
+}
+
+
 int main(void)
 {
     // listen on sock_fd, new connection on new_fd
@@ -111,8 +168,7 @@ int main(void)
     char ipstr[INET6_ADDRSTRLEN];
     int rv;
     int numbytes;
-    char buf[MAXDATASIZE], q0[MAXDATASIZE];
-    size_t buflen;
+    char buf[MAXDATASIZE];
 
     memset(&hints, 0, sizeof hints);
     hints.ai_family = AF_UNSPEC;
@@ -211,55 +267,7 @@ int main(void)
                 exit(11);
             }
             buf[numbytes] = '\0';
-            buflen = strlen(buf);
-            fprintf(stderr, "  recv: %zu/%lu\n", buflen, sizeof buf);
-
-            // This is a bogus case, ignore
-            if (buflen < 2 ) {
-            // This is {Q1} = "<CRLF>"
-            } else if (buflen == 2 && buf[0] == 13 && buf[1] == 10) {
-                if (ENABLE_FEATURE_LIST) {
-                    sender(new_fd, MSG_LIST_YES, 1);
-                } else {
-                    sender(new_fd, MSG_LIST_NO, 1);
-                }
-            } else {
-                int i;
-                for (i=0; i<buflen; i++) {
-                    if (i>1 && buf[i-1] == 13 && buf[i] == 10) {
-                        int aa = snprintf(q0, i, buf);
-                        fprintf(stderr, "  q0  : %s %zu (%d)\n", q0, strlen(q0), aa);
-
-                        char out_hdr[MAXFILESIZE+2];
-                        char out_plan[MAXFILESIZE+2];
-                        char out_all[(MAXFILESIZE+2)*2];
-
-                        struct passwd *p = malloc(sizeof(struct passwd));
-                        if ((p = getpwnam(q0)) == NULL) {
-                            printf("user not found\n");
-                            sender(new_fd, MSG_NO_INFO, 1);
-                            break;
-                        }
-                        if(reader(q0, ".nofinger", out_plan) != 2) {
-                            sender(new_fd, MSG_NO_INFO, 1);
-                            break;
-                        }
-
-                        xfmt(p, out_hdr, sizeof out_hdr);
-                        fprintf(stderr, "   hdr: %s\n", out_hdr);
-
-                        if(reader(q0, ".plan", out_plan) != 0) {
-                            snprintf(out_plan, sizeof out_plan, "No Plan.\n");
-                        }
-
-                        fprintf(stderr, "  plan: %s\n", out_plan);
-
-                        snprintf(out_all, sizeof out_all, "%s%s", out_hdr, out_plan);
-                        sender(new_fd, out_all, 0);
-                        break;
-                    }
-                }
-            }
+            handle_input(buf, new_fd);
 
             close(new_fd);
             exit(0);
