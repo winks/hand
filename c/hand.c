@@ -25,18 +25,14 @@
 #define MSG_LIST_YES "Finger online user NYI"
 #define MSG_NO_INFO "No information found"
 
+#define LISTEN_ANY 1
+#define LISTEN_V4 2
+#define LISTEN_V6 3
+
 void sigchld_handler(int s)
 {
+    s = 2;
     while(waitpid(-1, NULL, WNOHANG) > 0);
-}
-
-void *get_in_addr(struct sockaddr_storage *sa)
-{
-    if (((struct sockaddr*)sa)->sa_family == AF_INET) {
-        return &(((struct sockaddr_in*)sa)->sin_addr);
-    }
-
-    return &(((struct sockaddr_in6*)sa)->sin6_addr);
 }
 
 int reader(char *username, char *filename, char *output)
@@ -166,8 +162,28 @@ int handle_input(char *buf, int new_fd)
 }
 
 
-int main(void)
+int main(int argc, char** argv)
 {
+    int listen_type = 0;
+    if (argc == 2) {
+        printf("%s\n", argv[1]);
+        if (strcmp(argv[1], "-l") == 0) {
+            listen_type = LISTEN_ANY;
+        } else if (strcmp(argv[1], "-4") == 0) {
+            listen_type = LISTEN_V4;
+        } else if (strcmp(argv[1], "-6") == 0) {
+            listen_type = LISTEN_V6;
+        }
+    }
+    if (listen_type == 0) {
+        printf("Missing arguments.\n");
+        printf("Usage:\n");
+        printf("\t-l\tListen on any interface\n");
+        printf("\t-4\tListen on v4 interface only\n");
+        printf("\t-6\tListen on v6 interface only\n");
+        return 0;
+    }
+
     // listen on sock_fd, new connection on new_fd
     int sockfd, new_fd;
     struct addrinfo hints, *servinfo, *p;
@@ -222,10 +238,16 @@ int main(void)
             struct sockaddr_in *ipv4 = (struct sockaddr_in *)p->ai_addr;
             addr = &(ipv4->sin_addr);
             ipver = "IPv4";
+            if (listen_type == LISTEN_V6) {
+                continue;
+            }
         } else { // IPv6
             struct sockaddr_in6 *ipv6 = (struct sockaddr_in6 *)p->ai_addr;
             addr = &(ipv6->sin6_addr);
             ipver = "IPv6";
+            if (listen_type == LISTEN_V4) {
+                continue;
+            }
         }
 
         // convert the IP to a string and print it:
@@ -265,9 +287,7 @@ int main(void)
             continue;
         }
 
-        inet_ntop(their_addr.ss_family,
-            get_in_addr(&their_addr),
-            s, sizeof s);
+        getnameinfo((struct sockaddr *)&their_addr, sin_size, s, sizeof s, NULL, 0, NI_NUMERICHOST);
         getnameinfo((struct sockaddr *)&their_addr, sin_size, host, sizeof host, NULL, 0, 0);
         printf("SRV : got connection from %s %s\n", s, host);
 
