@@ -30,9 +30,9 @@ void sigchld_handler(int s)
     while(waitpid(-1, NULL, WNOHANG) > 0);
 }
 
-void *get_in_addr(struct sockaddr *sa)
+void *get_in_addr(struct sockaddr_storage *sa)
 {
-    if (sa->sa_family == AF_INET) {
+    if (((struct sockaddr*)sa)->sa_family == AF_INET) {
         return &(((struct sockaddr_in*)sa)->sin_addr);
     }
 
@@ -101,7 +101,6 @@ int xfmt(struct passwd *p, char *txt, int len)
 
 int handle_input(char *buf, int new_fd)
 {
-    char q0[MAXDATASIZE];
     size_t buflen = strlen(buf);
     fprintf(stderr, "  recv: %zu/%d\n", buflen, MAXDATASIZE);
     // This is a bogus case, ignore
@@ -112,7 +111,7 @@ int handle_input(char *buf, int new_fd)
 
     char *right = strdup(buf);
     char *left = strsep(&right, "\r");
-    fprintf(stderr, "  sep : %d+%d\n", strlen(left), strlen(right)+1);
+    fprintf(stderr, "  sep : %zu+%zu\n", strlen(left), strlen(right)+1);
 
     // This is a bogus case, ignore
     if (right == NULL || right[0] != '\n') {
@@ -175,6 +174,7 @@ int main(void)
     // connector's address information
     struct sockaddr_storage their_addr;
     socklen_t sin_size;
+    char host[NI_MAXHOST];
     struct sigaction sa;
     int yes=1;
     char s[INET6_ADDRSTRLEN];
@@ -266,9 +266,10 @@ int main(void)
         }
 
         inet_ntop(their_addr.ss_family,
-            get_in_addr((struct sockaddr *)&their_addr),
+            get_in_addr(&their_addr),
             s, sizeof s);
-        printf("SRV : got connection from %s\n", s);
+        getnameinfo((struct sockaddr *)&their_addr, sin_size, host, sizeof host, NULL, 0, 0);
+        printf("SRV : got connection from %s %s\n", s, host);
 
         // this is the child process
         if (!fork()) {
