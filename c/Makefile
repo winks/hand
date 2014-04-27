@@ -1,18 +1,27 @@
-CC=gcc
-CFLAGS=-Wall
+CC?=gcc
+SCC?=/usr/local/musl/bin/musl-gcc
+CFLAGS?=-Wall -Werror -Wextra -Wfloat-equal -Wundef -Wshadow -Wpointer-arith -ftrapv -Wcast-align -Wstrict-prototypes -Wstrict-overflow=5 -Waggregate-return -Wcast-qual -Wswitch-default -Wswitch-enum
+OFLAGS?=-O3
 
-all: clean hand
+all: clean hand shand static sstatic
 
 run:
-	./hand
+	./bin/hand -l
 
 hand:
-	${CC} ${CFLAGS} -o hand hand.c
+	${CC} ${CFLAGS} ${OFLAGS} -o bin/hand hand.c
+
+shand:
+	${SCC} ${CFLAGS} ${OFLAGS} -o bin/shand hand.c
+	strip bin/shand
 
 static:
-	${CC} ${CFLAGS} -o hand.static -static hand.c
+	${CC} ${CFLAGS} ${OFLAGS} -o bin/hand.static -static hand.c
+
+sstatic:
+	${SCC} ${CFLAGS} ${OFLAGS} -o bin/shand.static -static hand.c
 
 clean:
-	rm -f hand hand.static
+	rm -f bin/*
 
 .PHONY: clean

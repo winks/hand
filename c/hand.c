@@ -190,11 +190,11 @@ int main(int argc, char** argv)
     // connector's address information
     struct sockaddr_storage their_addr;
     socklen_t sin_size;
-    char host[NI_MAXHOST];
     struct sigaction sa;
     int yes=1;
-    char s[INET6_ADDRSTRLEN];
+    char *ipver;
     char ipstr[INET6_ADDRSTRLEN];
+    char hostname[NI_MAXHOST];
     int rv;
     int numbytes;
     char buf[MAXDATASIZE];
@@ -230,7 +230,6 @@ int main(int argc, char** argv)
         }
 
         void *addr;
-        char *ipver;
 
         // get the pointer to the address itself,
         // different fields in IPv4 and IPv6:
@@ -287,9 +286,9 @@ int main(int argc, char** argv)
             continue;
         }
 
-        getnameinfo((struct sockaddr *)&their_addr, sin_size, s, sizeof s, NULL, 0, NI_NUMERICHOST);
-        getnameinfo((struct sockaddr *)&their_addr, sin_size, host, sizeof host, NULL, 0, 0);
-        printf("SRV : got connection from %s %s\n", s, host);
+        getnameinfo((struct sockaddr *)&their_addr, sin_size, ipstr, sizeof ipstr, NULL, 0, NI_NUMERICHOST);
+        getnameinfo((struct sockaddr *)&their_addr, sin_size, hostname, sizeof hostname, NULL, 0, 0);
+        printf("SRV : got connection from %s %s\n", ipstr, hostname);
 
         // this is the child process
         if (!fork()) {
