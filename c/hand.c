@@ -16,6 +16,7 @@
 #define PORT "3490"
 #define FDIR "/srv/finger"
 #define ENABLE_FEATURE_LIST 0
+#define IGNORE_SYSTEM_USERS 0
 
 #define MAXDATASIZE 100
 #define MAXFILESIZE 1024
@@ -103,52 +104,63 @@ int handle_input(char *buf, int new_fd)
     char q0[MAXDATASIZE];
     size_t buflen = strlen(buf);
     fprintf(stderr, "  recv: %zu/%d\n", buflen, MAXDATASIZE);
-
     // This is a bogus case, ignore
     if (buflen < 2 ) {
+        fprintf(stderr, "  bogus\n");
+        return 11;
+    }
+
+    char *right = strdup(buf);
+    char *left = strsep(&right, "\r");
+    fprintf(stderr, "  sep : %d+%d\n", strlen(left), strlen(right)+1);
+
+    // This is a bogus case, ignore
+    if (right == NULL || right[0] != '\n') {
+        fprintf(stderr, "  bogus\n");
+        return 12;
     // This is {Q1} = "<CRLF>"
-    } else if (buflen == 2 && buf[0] == 13 && buf[1] == 10) {
+    } else if (strlen(left) == 0) {
         if (ENABLE_FEATURE_LIST) {
             sender(new_fd, MSG_LIST_YES, 1);
         } else {
             sender(new_fd, MSG_LIST_NO, 1);
         }
+    // This is the default, {Q1} = "INPUT<CRLF>"
     } else {
-        int i;
-        for (i=0; i<buflen; i++) {
-            if (i>1 && buf[i-1] == 13 && buf[i] == 10) {
-                int aa = snprintf(q0, i, buf);
-                fprintf(stderr, "  q0  : %s %zu (%d)\n", q0, strlen(q0), aa);
+        char out_hdr[MAXFILESIZE+2];
+        char out_plan[MAXFILESIZE+2];
+        char out_all[(MAXFILESIZE+2)*2];
 
-                char out_hdr[MAXFILESIZE+2];
-                char out_plan[MAXFILESIZE+2];
-                char out_all[(MAXFILESIZE+2)*2];
-
-                struct passwd *p;
-                if ((p = getpwnam(q0)) == NULL) {
-                    printf("user not found\n");
-                    sender(new_fd, MSG_NO_INFO, 1);
-                    break;
-                }
-                if(reader(q0, ".nofinger", out_plan) != 2) {
-                    sender(new_fd, MSG_NO_INFO, 1);
-                    break;
-                }
-
-                xfmt(p, out_hdr, sizeof out_hdr);
-                fprintf(stderr, "   hdr: %s\n", out_hdr);
-
-                if(reader(q0, ".plan", out_plan) != 0) {
-                    snprintf(out_plan, sizeof out_plan, "No Plan.\n");
-                }
-
-                fprintf(stderr, "  plan: %s\n", out_plan);
-
-                snprintf(out_all, sizeof out_all, "%s%s", out_hdr, out_plan);
-                sender(new_fd, out_all, 0);
-                break;
+        struct passwd *p;
+        if ((p = getpwnam(left)) == NULL) {
+            printf("SRV : user not found\n");
+            sender(new_fd, MSG_NO_INFO, 1);
+            return 13;
+        }
+        if (IGNORE_SYSTEM_USERS) {
+            if(p->pw_uid < 1000 || p->pw_uid >= 65534) {
+            printf("SRV : user not allowed to be found: %s:%d:%d\n",
+                    p->pw_name, p->pw_uid, p->pw_gid);
+            sender(new_fd, MSG_NO_INFO, 1);
+            return 14;
             }
         }
+        if(reader(p->pw_name, ".nofinger", out_plan) != 2) {
+            sender(new_fd, MSG_NO_INFO, 1);
+            return 15;
+        }
+
+        xfmt(p, out_hdr, sizeof out_hdr);
+        fprintf(stderr, "   hdr:\n%s\n---\n", out_hdr);
+
+        if(reader(p->pw_name, ".plan", out_plan) != 0) {
+            snprintf(out_plan, sizeof out_plan, "No Plan.\n");
+        }
+
+        fprintf(stderr, "  plan:\n%s\n---\n", out_plan);
+
+        snprintf(out_all, sizeof out_all, "%s%s", out_hdr, out_plan);
+        sender(new_fd, out_all, 0);
     }
 
     return 0;
