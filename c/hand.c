@@ -38,7 +38,7 @@ void *get_in_addr(struct sockaddr *sa)
     return &(((struct sockaddr_in6*)sa)->sin6_addr);
 }
 
-int reader(char* username, char* filename, char* output)
+int reader(char *username, char *filename, char *output)
 {
     FILE *fp;
     char filepath[MAXDATASIZE];
@@ -47,14 +47,14 @@ int reader(char* username, char* filename, char* output)
         perror("too long");
         return 1;
     }
-    fprintf(stderr, "  fn  : %s %zu %zu %zu\n", filepath, strlen(filepath), sizeof username, sizeof &output);
+    fprintf(stderr, "  read: %s\n", filepath);
 
     fp = fopen(filepath, "r");
-    if (fp == NULL || fp == 0) {
+    if (fp == NULL) {
         perror("file does not exist");
         return 2;
     } else {
-        size_t len = fread(output, sizeof(char), MAXFILESIZE, fp);
+        size_t len = fread(output, sizeof(char), MAXFILESIZE-1, fp);
         if (len == 0) {
             perror("error reading");
             return 3;
@@ -67,16 +67,17 @@ int reader(char* username, char* filename, char* output)
     return 0;
 }
 
-int sender(int new_fd, char* str, int newline)
+int sender(int socket_fd, char *str, int newline)
 {
-    char out[MAXFILESIZE+2];
+    char out[(MAXFILESIZE*2)+1];
+    int len;
 
     if (newline) {
-        snprintf(out, sizeof out, "%s\n", str);
+        len = snprintf(out, sizeof out, "%s\n", str);
     } else {
-        snprintf(out, sizeof out, "%s", str);
+        len = snprintf(out, sizeof out, "%s", str);
     }
-    if (send(new_fd, out, strlen(out), 0) == -1) {
+    if (send(socket_fd, out, len, 0) == -1) {
         perror("send");
     }
     printf("\n");
@@ -123,7 +124,7 @@ int handle_input(char *buf, int new_fd)
                 char out_plan[MAXFILESIZE+2];
                 char out_all[(MAXFILESIZE+2)*2];
 
-                struct passwd *p = malloc(sizeof(struct passwd));
+                struct passwd *p;
                 if ((p = getpwnam(q0)) == NULL) {
                     printf("user not found\n");
                     sender(new_fd, MSG_NO_INFO, 1);
